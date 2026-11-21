@@ -20,6 +20,21 @@ Let artists compare the composition of a reference, an in-progress image, and a 
 - For a custom frame, the ratio is `width_cm / height_cm`.
 - If either dimension is missing or non-positive, the custom frame is unavailable and an explanatory message is shown.
 
+## Crop and canvas-size frame
+
+- The composition settings persist a frame operation: `crop` keeps the frame inside the reference image, while `canvas` allows the frame to grow beyond the reference to represent added canvas area.
+- The frame can be moved horizontally and vertically relative to the reference, and its size changes proportionally.
+- The reference preview provides direct pointer dragging and proportional corner handles. Sliders expose the same size and position controls for keyboard and precise input.
+- Regions outside the frame are visibly dimmed. The source image remains unchanged; the frame is a planning overlay only.
+- The same persisted frame is used by the in-progress preview and palette-map guides.
+
+## Generated image output
+
+- Numbered palette maps and per-color maps use the persisted active frame as their output canvas, not merely as a visual overlay.
+- Crop mode exports only the selected source region. Canvas mode exports the enlarged frame and fills newly added canvas area with white.
+- Changing the active frame regenerates the currently available palette-map previews and, when a project folder is connected, overwrites the corresponding generated PNG files.
+- Palette extraction and color-area counts use the active frame as their input region. A palette calculated for a different active frame is not reused; it must be generated again.
+
 ## Grid types
 
 - Rule of thirds: 3 columns × 3 rows.

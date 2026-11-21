@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { defaultCompositionPlan } from "../../domain";
 import { extractPaletteRgba } from "../../image-processing/palette";
-import { createPaletteMapPixels, getPaletteMarkerPositions } from "./palette-map";
+import {
+  createActivePaletteView,
+  createPaletteMapPixels,
+  getPaletteMarkerPositions,
+} from "./palette-map";
 
 function createTwoColorPalette() {
   return extractPaletteRgba({
@@ -15,6 +20,22 @@ function createTwoColorPalette() {
       20, 30, 240, 255,
       20, 30, 240, 255,
     ]),
+  });
+}
+
+function createFourByFourPalette() {
+  return extractPaletteRgba({
+    assetId: "asset-map-square" as never,
+    assetRevision: "revision-map-square" as never,
+    width: 4,
+    height: 4,
+    requestedColors: 4,
+    pixels: new Uint8ClampedArray(Array.from({ length: 16 }, (_, index) => {
+      const isRed = index % 4 < 2;
+      return isRed
+        ? [240, 20, 20, 255]
+        : [20, 30, 240, 255];
+    }).flat()),
   });
 }
 
@@ -53,5 +74,34 @@ describe("palette map rendering data", () => {
   it("provides one readable marker position per palette color", () => {
     const palette = createTwoColorPalette();
     expect(getPaletteMarkerPositions(palette)).toHaveLength(palette.colors.length);
+  });
+
+  it("renders a crop map at the selected active frame size", () => {
+    const palette = createFourByFourPalette();
+    const view = createActivePaletteView(palette, {
+      ...defaultCompositionPlan,
+      aspect: "1:1",
+      crop: { mode: "crop", scale: 0.5, offsetX: 1, offsetY: 0 },
+    });
+
+    expect(view.width).toBe(2);
+    expect(view.height).toBe(2);
+    expect(view.activeMask?.every((value) => value === 1)).toBe(true);
+  });
+
+  it("renders canvas expansion with white pixels outside the source image", () => {
+    const palette = createFourByFourPalette();
+    const view = createActivePaletteView(palette, {
+      ...defaultCompositionPlan,
+      aspect: "1:1",
+      crop: { mode: "canvas", scale: 1.5, offsetX: 0, offsetY: 0 },
+    });
+    const pixels = createPaletteMapPixels(view);
+
+    expect(view.width).toBe(6);
+    expect(view.height).toBe(6);
+    expect(view.activeMask?.[0]).toBe(0);
+    expect(Array.from(pixels.slice(0, 3))).toEqual([255, 255, 255]);
+    expect(view.activeMask?.[view.width * 3 + 3]).toBe(1);
   });
 });

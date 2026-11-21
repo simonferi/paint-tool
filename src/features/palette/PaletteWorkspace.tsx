@@ -12,6 +12,7 @@ import type {
 import { assetRevision } from "../../domain";
 import type { ImageProcessingClient, ProcessingProgress } from "../../image-processing/client";
 import { assetStorage, paletteRepository } from "../../storage";
+import { getActiveFrameBounds, getCompositionCropKey } from "../composition/geometry";
 import { PaintPlanningWorkspace } from "../paint-planning/PaintPlanningWorkspace";
 import { drawPaletteMap, renderPaletteMapBlob } from "./palette-map";
 
@@ -156,6 +157,7 @@ export function PaletteWorkspace({
     () => ({ id: project.id, storage: project.storage }),
     [project.id, project.storage],
   );
+  const activeAreaKey = getCompositionCropKey(composition);
   const selectedAsset = assets.find((asset) => asset.role === sourceRole);
 
   useEffect(() => () => {
@@ -166,14 +168,24 @@ export function PaletteWorkspace({
   useEffect(() => {
     let active = true;
     const generation = generationRef.current;
+    setPalette(null);
+    setStatus("");
     paletteRepository.listForProject(storageProject.id)
       .then((records) => {
         if (!active || generationRef.current !== generation) return;
         const latest = records.find((record) => assets.some((asset) => (
           asset.id === record.assetId
           && assetRevision(asset) === record.assetRevision
+          && record.palette.activeAreaKey === activeAreaKey
         )));
-        if (!latest) return;
+        const hasPaletteForCurrentAssets = records.some((record) => assets.some((asset) => (
+          asset.id === record.assetId
+          && assetRevision(asset) === record.assetRevision
+        )));
+        if (!latest) {
+          if (hasPaletteForCurrentAssets) setStatus(t("palette.activeAreaChanged"));
+          return;
+        }
         onPreferencesChange({
           sourceRole: latest.sourceRole,
           requestedColors: latest.requestedColors,
@@ -191,7 +203,7 @@ export function PaletteWorkspace({
     return () => {
       active = false;
     };
-  }, [assets, onPreferencesChange, storageProject.id, t]);
+  }, [activeAreaKey, assets, onPreferencesChange, storageProject.id, t]);
 
   useEffect(() => {
     const currentPalette = palette;
@@ -284,6 +296,10 @@ export function PaletteWorkspace({
           source,
         },
         requestedColors,
+        selectedAsset.width && selectedAsset.height
+          ? getActiveFrameBounds(selectedAsset.width, selectedAsset.height, composition)
+          : { x: 0, y: 0, width: 1, height: 1 },
+        activeAreaKey,
         (progress) => {
           if (generationRef.current === generation) {
             const label = t(progressKeys[progress.stage]);

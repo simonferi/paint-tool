@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { AssetId, AssetRevision, ProjectId } from "./ids";
 import { paletteSizeSchema } from "./palette";
 
-export const projectSchemaVersion = 3 as const;
+export const projectSchemaVersion = 4 as const;
 
 export const storageModeSchema = z.enum(["filesystem", "indexeddb"]);
 export type StorageMode = z.infer<typeof storageModeSchema>;
@@ -23,10 +23,29 @@ export const gridModeSchema = z.enum([
 ]);
 export type GridMode = z.infer<typeof gridModeSchema>;
 
+export const compositionCropModeSchema = z.enum(["crop", "canvas"]);
+export type CompositionCropMode = z.infer<typeof compositionCropModeSchema>;
+
+export const compositionCropSchema = z.object({
+  mode: compositionCropModeSchema,
+  scale: z.number().min(0.25).max(2.5),
+  offsetX: z.number().min(-1).max(1),
+  offsetY: z.number().min(-1).max(1),
+});
+export type CompositionCrop = z.infer<typeof compositionCropSchema>;
+
+export const defaultCompositionCrop: CompositionCrop = {
+  mode: "crop",
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+};
+
 export const compositionPlanSchema = z.object({
   aspect: compositionAspectSchema,
   widthCm: z.number().positive().nullable(),
   heightCm: z.number().positive().nullable(),
+  crop: compositionCropSchema.default(defaultCompositionCrop),
   grid: z.object({
     mode: gridModeSchema,
     columns: z.number().int().min(1).max(100),
@@ -40,6 +59,7 @@ export const defaultCompositionPlan: CompositionPlan = {
   aspect: "free",
   widthCm: null,
   heightCm: null,
+  crop: structuredClone(defaultCompositionCrop),
   grid: {
     mode: "thirds",
     columns: 10,

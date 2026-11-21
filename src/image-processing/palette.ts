@@ -4,6 +4,13 @@ import { paletteExtractionSchema } from "../domain";
 export const paletteVersion = 1 as const;
 export const paletteMapMaxSide = 1000;
 
+export type PaletteRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export type PaletteRgbaInput = {
   pixels: Uint8ClampedArray;
   width: number;
@@ -11,6 +18,7 @@ export type PaletteRgbaInput = {
   assetId: AssetId;
   assetRevision: AssetRevision;
   requestedColors: PaletteSize;
+  activeAreaKey?: string;
 };
 
 type ColorPoint = {
@@ -152,7 +160,15 @@ function refineCentroids(points: ColorPoint[], initial: Centroid[]): Centroid[] 
 }
 
 export function extractPaletteRgba(input: PaletteRgbaInput): PaletteExtraction {
-  const { pixels, width, height, assetId, assetRevision, requestedColors } = input;
+  const {
+    pixels,
+    width,
+    height,
+    assetId,
+    assetRevision,
+    requestedColors,
+    activeAreaKey = "full",
+  } = input;
   if (width <= 0 || height <= 0 || pixels.length !== width * height * 4) {
     throw new Error("A paletta készítéséhez érvényes RGBA képadat szükséges.");
   }
@@ -227,9 +243,10 @@ export function extractPaletteRgba(input: PaletteRgbaInput): PaletteExtraction {
   }
 
   return paletteExtractionSchema.parse({
-    id: `palette:v${paletteVersion}:${assetId}:${assetRevision}:${requestedColors}`,
+    id: `palette:v${paletteVersion}:${assetId}:${assetRevision}:${requestedColors}:${activeAreaKey}`,
     assetId,
     assetRevision,
+    activeAreaKey,
     paletteVersion,
     requestedColors,
     width,
@@ -243,6 +260,7 @@ export function extractPaletteRgba(input: PaletteRgbaInput): PaletteExtraction {
 export async function extractPaletteImageBlob(
   blob: Blob,
   input: Omit<PaletteRgbaInput, "pixels" | "width" | "height">,
+  region: PaletteRegion = { x: 0, y: 0, width: 0, height: 0 },
   onProgress?: (
     stage: "decode" | "sample" | "quantize" | "map",
     completed: number,
@@ -257,15 +275,28 @@ export async function extractPaletteImageBlob(
   const bitmap = await createImageBitmap(blob);
   try {
     onProgress?.("decode", 1, 1);
-    const scale = Math.min(1, paletteMapMaxSide / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const sourceRegion = region.width > 0 && region.height > 0
+      ? region
+      : { x: 0, y: 0, width: bitmap.width, height: bitmap.height };
+    const scale = Math.min(1, paletteMapMaxSide / Math.max(sourceRegion.width, sourceRegion.height));
+    const width = Math.max(1, Math.round(sourceRegion.width * scale));
+    const height = Math.max(1, Math.round(sourceRegion.height * scale));
     const canvas = new OffscreenCanvas(width, height);
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) {
       throw new Error("A palettakészítéshez nem érhető el háttérbeli 2D canvas.");
     }
-    context.drawImage(bitmap, 0, 0, width, height);
+    context.drawImage(
+      bitmap,
+      sourceRegion.x,
+      sourceRegion.y,
+      sourceRegion.width,
+      sourceRegion.height,
+      0,
+      0,
+      width,
+      height,
+    );
     const imageData = context.getImageData(0, 0, width, height);
     onProgress?.("sample", 1, 1);
     onProgress?.("quantize", 0, 1);

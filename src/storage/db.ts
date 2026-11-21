@@ -27,7 +27,7 @@ export type StorageBindingRecord = {
 
 type MigratingProjectRecord = {
   schemaVersion?: number;
-  composition?: Project["composition"];
+  composition?: Partial<Project["composition"]>;
   workspace?: Project["workspace"];
 };
 
@@ -96,6 +96,29 @@ export class PaintToolDatabase extends Dexie {
       await transaction.table("projects").toCollection().modify((project: MigratingProjectRecord) => {
         project.schemaVersion = 3;
         project.workspace ??= structuredClone(defaultProjectWorkspace);
+      });
+    });
+    this.version(6).stores({
+      projects: "id, updatedAt",
+      assets: "id, projectId, [projectId+role]",
+      analyses: "id, assetId, [assetId+assetRevision+analysisVersion]",
+      fallbackBlobs: "assetId",
+      storageBindings: "projectId, rootKey",
+      paintColors: "id, projectId, manufacturer, name",
+      paintMixNotes: "id, projectId, [projectId+targetHex]",
+      palettes: "id, projectId, assetId, [projectId+savedAt]",
+    }).upgrade(async (transaction) => {
+      await transaction.table("projects").toCollection().modify((project: MigratingProjectRecord) => {
+        const composition = project.composition ?? {};
+        project.schemaVersion = 4;
+        project.composition = {
+          ...structuredClone(defaultCompositionPlan),
+          ...composition,
+          crop: {
+            ...defaultCompositionPlan.crop,
+            ...(composition.crop ?? {}),
+          },
+        };
       });
     });
   }

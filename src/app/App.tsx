@@ -296,6 +296,10 @@ export function App() {
       paint: { ...current.paint, ...update },
     }));
   }, []);
+  const updateCropFrame = useCallback((crop: CompositionPlan["crop"]) => {
+    setCompositionFeedback(null);
+    setCompositionDraft((current) => ({ ...current, crop }));
+  }, []);
 
   useEffect(() => {
     const project = useAppStore.getState().activeProject;
@@ -852,6 +856,95 @@ export function App() {
                       />
                     </label>
                   </div>
+                  <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <label className="grid gap-1.5 text-xs text-stone-600">
+                        {t("composition.frameMode")}
+                        <select
+                          value={compositionDraft.crop.mode}
+                          onChange={(event) => {
+                            const mode = event.target.value as CompositionPlan["crop"]["mode"];
+                            setCompositionDraft({
+                              ...compositionDraft,
+                              crop: {
+                                ...compositionDraft.crop,
+                                mode,
+                                scale: mode === "crop"
+                                  ? Math.min(1, compositionDraft.crop.scale)
+                                  : Math.max(1, compositionDraft.crop.scale),
+                              },
+                            });
+                          }}
+                          className="rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-800"
+                        >
+                          <option value="crop">{t("composition.modeCrop")}</option>
+                          <option value="canvas">{t("composition.modeCanvas")}</option>
+                        </select>
+                      </label>
+                      <label className="grid gap-1.5 text-xs text-stone-600">
+                        <span className="flex justify-between gap-2">
+                          <span>{t("composition.frameScale")}</span>
+                          <span>{Math.round(compositionDraft.crop.scale * 100)}%</span>
+                        </span>
+                        <input
+                          type="range"
+                          min={compositionDraft.crop.mode === "crop" ? 0.25 : 1}
+                          max={compositionDraft.crop.mode === "crop" ? 1 : 2.5}
+                          step="0.01"
+                          value={compositionDraft.crop.scale}
+                          aria-label={t("composition.frameScale")}
+                          onChange={(event) => setCompositionDraft({
+                            ...compositionDraft,
+                            crop: { ...compositionDraft.crop, scale: Number(event.target.value) },
+                          })}
+                          className="accent-emerald-700"
+                        />
+                      </label>
+                      <p className="self-end text-xs leading-5 text-stone-500">
+                        {t("composition.frameHelp")}
+                      </p>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="grid gap-1.5 text-xs text-stone-600">
+                        <span className="flex justify-between gap-2">
+                          <span>{t("composition.horizontalOffset")}</span>
+                          <span>{Math.round(compositionDraft.crop.offsetX * 100)}%</span>
+                        </span>
+                        <input
+                          type="range"
+                          min="-1"
+                          max="1"
+                          step="0.01"
+                          value={compositionDraft.crop.offsetX}
+                          aria-label={t("composition.horizontalOffset")}
+                          onChange={(event) => setCompositionDraft({
+                            ...compositionDraft,
+                            crop: { ...compositionDraft.crop, offsetX: Number(event.target.value) },
+                          })}
+                          className="accent-emerald-700"
+                        />
+                      </label>
+                      <label className="grid gap-1.5 text-xs text-stone-600">
+                        <span className="flex justify-between gap-2">
+                          <span>{t("composition.verticalOffset")}</span>
+                          <span>{Math.round(compositionDraft.crop.offsetY * 100)}%</span>
+                        </span>
+                        <input
+                          type="range"
+                          min="-1"
+                          max="1"
+                          step="0.01"
+                          value={compositionDraft.crop.offsetY}
+                          aria-label={t("composition.verticalOffset")}
+                          onChange={(event) => setCompositionDraft({
+                            ...compositionDraft,
+                            crop: { ...compositionDraft.crop, offsetY: Number(event.target.value) },
+                          })}
+                          className="accent-emerald-700"
+                        />
+                      </label>
+                    </div>
+                  </div>
                   {compositionDraft.grid.mode === "custom" && (
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <label className="grid gap-1.5 text-xs text-stone-600">
@@ -922,6 +1015,7 @@ export function App() {
                         project={activeProject}
                         asset={assets.find((asset) => asset.role === role)}
                         plan={compositionDraft}
+                        onCropFrameChange={role === "reference" ? updateCropFrame : undefined}
                       />
                     ))}
                   </div>

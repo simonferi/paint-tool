@@ -27,6 +27,7 @@ export const paletteExtractionSchema = z.object({
   id: z.string().min(1),
   assetId: z.string().min(1).transform((value) => value as AssetId),
   assetRevision: z.string().min(1).transform((value) => value as AssetRevision),
+  activeAreaKey: z.string().min(1).default("full"),
   paletteVersion: z.literal(1),
   requestedColors: paletteSizeSchema,
   width: z.number().int().positive().max(1000),

@@ -9,8 +9,9 @@ import {
   type PaletteSize,
 } from "../domain";
 import { imageAnalysisSchema } from "../domain";
+import type { PaletteRegion } from "./palette";
 
-export const workerProtocolVersion = 1 as const;
+export const workerProtocolVersion = 2 as const;
 
 const analyzePayloadSchema = z.object({
   assetId: z.string().min(1).transform((value) => value as AssetId),
@@ -26,6 +27,13 @@ const palettePayloadSchema = z.object({
   source: z.custom<Blob>((value) => value instanceof Blob),
   requestedColors: paletteSizeSchema,
   sampleMaxSide: z.number().int().positive().max(1000),
+  activeRegion: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }),
+  activeAreaKey: z.string().min(1),
 });
 
 export const workerRequestSchema = z.discriminatedUnion("type", [
@@ -71,6 +79,8 @@ export type ExtractPaletteRequest = {
     source: Blob;
     requestedColors: PaletteSize;
     sampleMaxSide: number;
+    activeRegion: PaletteRegion;
+    activeAreaKey: string;
   };
 };
 
