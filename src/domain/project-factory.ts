@@ -15,7 +15,7 @@ export function createProject(name: string, now = new Date()): Project {
   const timestamp = now.toISOString();
   return {
     id: createId<"ProjectId">(),
-    schemaVersion: 3,
+    schemaVersion: 4,
     name: name.trim() || "Új festőprojekt",
     createdAt: timestamp,
     updatedAt: timestamp,

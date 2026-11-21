@@ -64,7 +64,9 @@ workerScope.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           assetId: request.payload.assetId,
           assetRevision: request.payload.assetRevision,
           requestedColors: request.payload.requestedColors,
+          activeAreaKey: request.payload.activeAreaKey,
         },
+        request.payload.activeRegion,
         (stage, completed, total) => {
           if (cancelledRequests.has(request.requestId)) {
             throw new DOMException("A palettakészítés megszakadt.", "AbortError");

@@ -1,11 +1,21 @@
 import type { CompositionPlan, PaletteExtraction } from "../../domain";
-import { drawCompositionGuides } from "../composition/geometry";
+import { paletteMapMaxSide } from "../../image-processing/palette";
+import {
+  drawCompositionGuides,
+  getCompositionCropKey,
+  getCropFrameBounds,
+  getTargetRatio,
+} from "../composition/geometry";
 
 const hatchColor = [22, 61, 50] as const;
 const contourColor = [26, 39, 34] as const;
 
+type PaletteMapSource = PaletteExtraction & {
+  activeMask?: Uint8Array;
+};
+
 export function createPaletteMapPixels(
-  palette: PaletteExtraction,
+  palette: PaletteMapSource,
   colorNumber?: number,
   showContours = false,
 ): Uint8ClampedArray {
@@ -22,6 +32,13 @@ export function createPaletteMapPixels(
     const x = pixel % palette.width;
     const y = Math.floor(pixel / palette.width);
     const offset = pixel * 4;
+    if (palette.activeMask && palette.activeMask[pixel] === 0) {
+      output[offset] = 255;
+      output[offset + 1] = 255;
+      output[offset + 2] = 255;
+      output[offset + 3] = 255;
+      continue;
+    }
     const label = palette.labelMap[pixel];
     if (targetIndex === undefined) {
       const color = palette.colors[label];
@@ -46,7 +63,8 @@ export function createPaletteMapPixels(
       const label = palette.labelMap[pixel];
       const x = pixel % palette.width;
       const y = Math.floor(pixel / palette.width);
-      const currentRelevant = targetIndex === undefined || label === targetIndex;
+      const currentRelevant = (!palette.activeMask || palette.activeMask[pixel] === 1)
+        && (targetIndex === undefined || label === targetIndex);
       let touchesBoundary = currentRelevant && (
         x === 0 || y === 0 || x === palette.width - 1 || y === palette.height - 1
       );
@@ -58,6 +76,7 @@ export function createPaletteMapPixels(
       ];
       for (const neighbor of neighbors) {
         if (neighbor < 0) continue;
+        if (palette.activeMask && palette.activeMask[neighbor] === 0) continue;
         const neighborLabel = palette.labelMap[neighbor];
         const isPaletteEdge = neighborLabel !== label;
         const touchesSelectedColor = targetIndex === undefined
@@ -80,13 +99,28 @@ export function createPaletteMapPixels(
   return output;
 }
 
-export function getPaletteMarkerPositions(palette: PaletteExtraction) {
+export function getPaletteMarkerPositions(palette: PaletteMapSource) {
   const separation = Math.max(palette.width, palette.height) * 0.045;
   const positions: Array<{ x: number; y: number; label: number }> = [];
   for (let colorIndex = 0; colorIndex < palette.colors.length; colorIndex += 1) {
     const marker = palette.colors[colorIndex].marker;
     let x = marker.x * Math.max(1, palette.width - 1);
     let y = marker.y * Math.max(1, palette.height - 1);
+    if (palette.activeMask) {
+      const markerPixel = Math.round(y) * palette.width + Math.round(x);
+      if (palette.activeMask[markerPixel] !== 1 || palette.labelMap[markerPixel] !== colorIndex) {
+        let visiblePixel = -1;
+        for (let pixel = 0; pixel < palette.labelMap.length; pixel += 1) {
+          if (palette.activeMask[pixel] === 1 && palette.labelMap[pixel] === colorIndex) {
+            visiblePixel = pixel;
+            break;
+          }
+        }
+        if (visiblePixel < 0) continue;
+        x = visiblePixel % palette.width;
+        y = Math.floor(visiblePixel / palette.width);
+      }
+    }
     const overlaps = (candidateX: number, candidateY: number) => positions.some((position) => (
       Math.hypot(candidateX - position.x, candidateY - position.y) < separation
     ));
@@ -113,10 +147,72 @@ export function getPaletteMarkerPositions(palette: PaletteExtraction) {
     positions.push({ x, y, label: colorIndex });
   }
 
-  return positions.map(({ x, y }) => ({
+  return positions.map(({ x, y, label }) => ({
     x: x / Math.max(1, palette.width - 1),
     y: y / Math.max(1, palette.height - 1),
+    label,
   }));
+}
+
+export function createActivePaletteView(
+  palette: PaletteExtraction,
+  composition: CompositionPlan,
+): PaletteMapSource {
+  const sourceBounds = { x: 0, y: 0, width: palette.width, height: palette.height };
+  const frame = getCropFrameBounds(sourceBounds, getTargetRatio(composition), composition.crop);
+  const outputScale = Math.min(
+    1,
+    paletteMapMaxSide / Math.max(frame.width, frame.height),
+  );
+  const width = Math.max(1, Math.round(frame.width * outputScale));
+  const height = Math.max(1, Math.round(frame.height * outputScale));
+  const sourcePixels = new Uint8ClampedArray(width * height * 4);
+  const labelMap = new Uint8Array(width * height);
+  const activeMask = new Uint8Array(width * height);
+  const colors = palette.colors.map((color) => ({
+    ...color,
+    marker: {
+      x: Math.min(1, Math.max(0, (color.marker.x * Math.max(1, palette.width - 1) - frame.x) / frame.width)),
+      y: Math.min(1, Math.max(0, (color.marker.y * Math.max(1, palette.height - 1) - frame.y) / frame.height)),
+    },
+  }));
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const outputPixel = y * width + x;
+      const sourceX = Math.floor(frame.x + (x + 0.5) / outputScale);
+      const sourceY = Math.floor(frame.y + (y + 0.5) / outputScale);
+      const outputOffset = outputPixel * 4;
+      if (sourceX < 0 || sourceY < 0 || sourceX >= palette.width || sourceY >= palette.height) {
+        sourcePixels[outputOffset] = 255;
+        sourcePixels[outputOffset + 1] = 255;
+        sourcePixels[outputOffset + 2] = 255;
+        sourcePixels[outputOffset + 3] = 255;
+        continue;
+      }
+
+      const sourcePixel = sourceY * palette.width + sourceX;
+      const sourceOffset = sourcePixel * 4;
+      activeMask[outputPixel] = 1;
+      labelMap[outputPixel] = palette.labelMap[sourcePixel];
+      sourcePixels[outputOffset] = palette.sourcePixels[sourceOffset];
+      sourcePixels[outputOffset + 1] = palette.sourcePixels[sourceOffset + 1];
+      sourcePixels[outputOffset + 2] = palette.sourcePixels[sourceOffset + 2];
+      sourcePixels[outputOffset + 3] = palette.sourcePixels[sourceOffset + 3];
+    }
+  }
+
+  return {
+    ...palette,
+    id: `${palette.id}:active:${width}x${height}`,
+    activeAreaKey: getCompositionCropKey(composition),
+    width,
+    height,
+    colors,
+    labelMap,
+    sourcePixels,
+    activeMask,
+  };
 }
 
 export function drawPaletteMap(
@@ -126,27 +222,38 @@ export function drawPaletteMap(
   colorNumber?: number,
   showContours = false,
 ): void {
-  canvas.width = palette.width;
-  canvas.height = palette.height;
+  const activePalette = palette.activeAreaKey === getCompositionCropKey(composition)
+    ? palette
+    : createActivePaletteView(palette, composition);
+  canvas.width = activePalette.width;
+  canvas.height = activePalette.height;
   const context = canvas.getContext("2d");
   if (!context) return;
 
-  const imageData = context.createImageData(palette.width, palette.height);
-  imageData.data.set(createPaletteMapPixels(palette, colorNumber, showContours));
+  const imageData = context.createImageData(activePalette.width, activePalette.height);
+  imageData.data.set(createPaletteMapPixels(activePalette, colorNumber, showContours));
   context.putImageData(imageData, 0, 0);
+  const outputBounds = {
+    x: 0,
+    y: 0,
+    width: activePalette.width,
+    height: activePalette.height,
+  };
   drawCompositionGuides(
     context,
-    { x: 0, y: 0, width: palette.width, height: palette.height },
+    outputBounds,
     composition,
+    outputBounds,
+    outputBounds,
   );
-  const fontSize = Math.max(9, Math.round(Math.min(palette.width, palette.height) * 0.045));
+  const fontSize = Math.max(9, Math.round(Math.min(activePalette.width, activePalette.height) * 0.045));
   if (colorNumber === undefined) {
-    getPaletteMarkerPositions(palette).forEach((marker, index) => {
+    getPaletteMarkerPositions(activePalette).forEach((marker) => {
       drawNumberMarker(
         context,
-        marker.x * Math.max(1, palette.width - 1),
-        marker.y * Math.max(1, palette.height - 1),
-        palette.colors[index].number,
+        marker.x * Math.max(1, activePalette.width - 1),
+        marker.y * Math.max(1, activePalette.height - 1),
+        activePalette.colors[marker.label].number,
         fontSize,
       );
     });

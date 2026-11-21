@@ -12,6 +12,7 @@ import {
   type WorkerErrorEvent,
   type WorkerEvent,
 } from "./protocol";
+import type { PaletteRegion } from "./palette";
 
 export type AnalysisProgress = {
   stage: "decode" | "sample" | "analyze" | "quantize" | "map";
@@ -116,6 +117,8 @@ export class ImageProcessingClient {
       source: Blob;
     },
     requestedColors: PaletteSize,
+    activeRegion: PaletteRegion,
+    activeAreaKey: string,
     onProgress?: (progress: AnalysisProgress) => void,
   ): PaletteTask {
     const requestId = createId<"AnalysisId">();
@@ -136,6 +139,8 @@ export class ImageProcessingClient {
         ...asset,
         requestedColors,
         sampleMaxSide: 1000,
+        activeRegion,
+        activeAreaKey,
       },
     });
     return {

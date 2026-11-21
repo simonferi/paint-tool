@@ -5,6 +5,7 @@ test("extracts a local palette, shows maps, and downloads labeled PNGs", async (
   page.on("dialog", async (dialog) => {
     await dialog.accept();
   });
+
   await page.goto("/");
   await page.getByRole("textbox", { name: "Projekt neve" }).fill("Paletta térkép");
   await page.getByRole("button", { name: "Projekt létrehozása" }).click();
@@ -102,4 +103,56 @@ test("extracts a local palette, shows maps, and downloads labeled PNGs", async (
   await expect(page.getByRole("alert")).toHaveText(
     "A kiválasztott kép nem érhető el a helyi projektmappában vagy tárban.",
   );
+});
+
+test("extracts the palette only from the selected active crop area", async ({ page }, testInfo) => {
+  page.on("dialog", async (dialog) => {
+    await dialog.accept();
+  });
+  await page.goto("/");
+  await page.getByRole("textbox", { name: "Projekt neve" }).fill("Aktív terület");
+  await page.getByRole("button", { name: "Projekt létrehozása" }).click();
+
+  const pngBase64 = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable in the test browser.");
+    context.fillStyle = "#ec1c24";
+    context.fillRect(0, 0, 8, 8);
+    context.fillStyle = "#1828ed";
+    context.fillRect(8, 0, 8, 8);
+    context.fillStyle = "#1cbd35";
+    context.fillRect(0, 8, 8, 8);
+    context.fillStyle = "#ead629";
+    context.fillRect(8, 8, 8, 8);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: "aktiv-terulet.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(pngBase64, "base64"),
+  });
+
+  await expect(page.getByRole("heading", { name: "aktiv-terulet.png" })).toBeVisible();
+  await page.getByLabel("Képarány-keret").selectOption("1:1");
+  await page.getByLabel("Keret művelete").selectOption("crop");
+  await page.getByLabel("Keret mérete").fill("0.25");
+  await page.getByLabel("Vízszintes pozíció").fill("1");
+  await page.getByLabel("Függőleges pozíció").fill("1");
+  await page.getByLabel("Palettaszínek száma").selectOption("4");
+  await page.getByRole("button", { name: "Paletta készítése" }).click();
+
+  await expect(page.getByText("A paletta elkészült: 1 szín.")).toBeVisible();
+  await expect(page.getByRole("list").getByText(/1 · #[0-9A-F]{6}/)).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Számozott palettatérkép letöltése PNG-fájlként" }).click();
+  const download = await downloadPromise;
+  const path = testInfo.outputPath(download.suggestedFilename());
+  await download.saveAs(path);
+  const png = await readFile(path);
+  expect(png.readUInt32BE(16)).toBe(4);
+  expect(png.readUInt32BE(20)).toBe(4);
 });

@@ -24,6 +24,7 @@ describe("extractPaletteRgba", () => {
     expect(Array.from(result.labelMap)).toEqual([1, 1, 0, 0]);
     expect(result.sourcePixels[3]).toBe(255);
     expect(result.id).toContain(":4");
+    expect(result.activeAreaKey).toBe("full");
   });
 
   it("composites transparent pixels over white", () => {

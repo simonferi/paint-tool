@@ -1,10 +1,17 @@
-import type { CompositionPlan } from "../../domain";
+import type { CompositionCrop, CompositionPlan } from "../../domain";
 
 export type Bounds = {
   x: number;
   y: number;
   width: number;
   height: number;
+};
+
+export type PreviewLayout = {
+  imageBounds: Bounds;
+  frameBounds: Bounds;
+  movementRangeX: number;
+  movementRangeY: number;
 };
 
 export type GeometryMessageKey =
@@ -68,6 +75,138 @@ export function getGuideBounds(bounds: Bounds, targetRatio: number | null): Boun
     y: bounds.y + (bounds.height - frameHeight) / 2,
     width: frameWidth,
     height: frameHeight,
+  };
+}
+
+function getCanvasBounds(bounds: Bounds, targetRatio: number): Bounds {
+  const imageRatio = bounds.width / bounds.height;
+  const frameWidth = targetRatio > imageRatio ? bounds.height * targetRatio : bounds.width;
+  const frameHeight = targetRatio > imageRatio ? bounds.height : bounds.width / targetRatio;
+  return {
+    x: bounds.x + (bounds.width - frameWidth) / 2,
+    y: bounds.y + (bounds.height - frameHeight) / 2,
+    width: frameWidth,
+    height: frameHeight,
+  };
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function getCropScale(crop: CompositionCrop, targetRatio: number | null): number {
+  if (!targetRatio || !Number.isFinite(targetRatio) || targetRatio <= 0) return 1;
+  const minimum = crop.mode === "crop" ? 0.25 : 1;
+  const maximum = crop.mode === "crop" ? 1 : 2.5;
+  return clamp(crop.scale, minimum, maximum);
+}
+
+export function getCropFrameBounds(
+  imageBounds: Bounds,
+  targetRatio: number | null,
+  crop: CompositionCrop,
+): Bounds & { movementRangeX: number; movementRangeY: number } {
+  if (!targetRatio || !Number.isFinite(targetRatio) || targetRatio <= 0) {
+    return { ...imageBounds, movementRangeX: 0, movementRangeY: 0 };
+  }
+
+  const baseBounds = crop.mode === "canvas"
+    ? getCanvasBounds(imageBounds, targetRatio)
+    : getGuideBounds(imageBounds, targetRatio);
+  const scale = getCropScale(crop, targetRatio);
+  const width = baseBounds.width * scale;
+  const height = baseBounds.height * scale;
+  const movementRangeX = Math.abs(imageBounds.width - width) / 2;
+  const movementRangeY = Math.abs(imageBounds.height - height) / 2;
+  const centerX = imageBounds.x + imageBounds.width / 2;
+  const centerY = imageBounds.y + imageBounds.height / 2;
+  const offsetX = clamp(crop.offsetX, -1, 1);
+  const offsetY = clamp(crop.offsetY, -1, 1);
+
+  return {
+    x: centerX - width / 2 + offsetX * movementRangeX,
+    y: centerY - height / 2 + offsetY * movementRangeY,
+    width,
+    height,
+    movementRangeX,
+    movementRangeY,
+  };
+}
+
+export function getActiveFrameBounds(
+  imageWidth: number,
+  imageHeight: number,
+  plan: CompositionPlan,
+): Bounds {
+  const frame = getCropFrameBounds(
+    { x: 0, y: 0, width: imageWidth, height: imageHeight },
+    getTargetRatio(plan),
+    plan.crop,
+  );
+  return {
+    x: frame.x,
+    y: frame.y,
+    width: frame.width,
+    height: frame.height,
+  };
+}
+
+export function getCompositionCropKey(plan: CompositionPlan): string {
+  if (!getTargetRatio(plan)) return "full";
+  return [
+    plan.aspect,
+    plan.widthCm ?? "",
+    plan.heightCm ?? "",
+    plan.crop.mode,
+    plan.crop.scale,
+    plan.crop.offsetX,
+    plan.crop.offsetY,
+  ].join(":");
+}
+
+export function getPreviewLayout(
+  width: number,
+  height: number,
+  imageWidth: number,
+  imageHeight: number,
+  plan: CompositionPlan,
+): PreviewLayout {
+  const logicalImageBounds = { x: 0, y: 0, width: imageWidth, height: imageHeight };
+  const logicalFrameBounds = getCropFrameBounds(
+    logicalImageBounds,
+    getTargetRatio(plan),
+    plan.crop,
+  );
+  const contentLeft = Math.min(logicalImageBounds.x, logicalFrameBounds.x);
+  const contentTop = Math.min(logicalImageBounds.y, logicalFrameBounds.y);
+  const contentRight = Math.max(
+    logicalImageBounds.x + logicalImageBounds.width,
+    logicalFrameBounds.x + logicalFrameBounds.width,
+  );
+  const contentBottom = Math.max(
+    logicalImageBounds.y + logicalImageBounds.height,
+    logicalFrameBounds.y + logicalFrameBounds.height,
+  );
+  const contentWidth = Math.max(1, contentRight - contentLeft);
+  const contentHeight = Math.max(1, contentBottom - contentTop);
+  const scale = Math.min(
+    Math.max(1, width - 16) / contentWidth,
+    Math.max(1, height - 16) / contentHeight,
+  );
+  const originX = (width - contentWidth * scale) / 2 - contentLeft * scale;
+  const originY = (height - contentHeight * scale) / 2 - contentTop * scale;
+  const toScreen = (bounds: Bounds): Bounds => ({
+    x: originX + bounds.x * scale,
+    y: originY + bounds.y * scale,
+    width: bounds.width * scale,
+    height: bounds.height * scale,
+  });
+
+  return {
+    imageBounds: toScreen(logicalImageBounds),
+    frameBounds: toScreen(logicalFrameBounds),
+    movementRangeX: logicalFrameBounds.movementRangeX * scale,
+    movementRangeY: logicalFrameBounds.movementRangeY * scale,
   };
 }
 
@@ -200,24 +339,26 @@ export function drawCompositionGuides(
   context: CanvasRenderingContext2D,
   imageBounds: Bounds,
   plan: CompositionPlan,
+  viewport: Bounds = imageBounds,
+  frameOverride?: Bounds,
 ): void {
-  const guideBounds = getGuideBounds(imageBounds, getTargetRatio(plan));
-  if (guideBounds.x !== imageBounds.x || guideBounds.y !== imageBounds.y
-    || guideBounds.width !== imageBounds.width || guideBounds.height !== imageBounds.height) {
+  const guideBounds = frameOverride ?? getCropFrameBounds(imageBounds, getTargetRatio(plan), plan.crop);
+  if (guideBounds.x !== viewport.x || guideBounds.y !== viewport.y
+    || guideBounds.width !== viewport.width || guideBounds.height !== viewport.height) {
     context.save();
     context.fillStyle = "rgb(22 27 24 / 28%)";
-    context.fillRect(imageBounds.x, imageBounds.y, imageBounds.width, guideBounds.y - imageBounds.y);
+    context.fillRect(viewport.x, viewport.y, viewport.width, Math.max(0, guideBounds.y - viewport.y));
     context.fillRect(
-      imageBounds.x,
+      viewport.x,
       guideBounds.y + guideBounds.height,
-      imageBounds.width,
-      imageBounds.y + imageBounds.height - guideBounds.y - guideBounds.height,
+      viewport.width,
+      Math.max(0, viewport.y + viewport.height - guideBounds.y - guideBounds.height),
     );
-    context.fillRect(imageBounds.x, guideBounds.y, guideBounds.x - imageBounds.x, guideBounds.height);
+    context.fillRect(viewport.x, guideBounds.y, Math.max(0, guideBounds.x - viewport.x), guideBounds.height);
     context.fillRect(
       guideBounds.x + guideBounds.width,
       guideBounds.y,
-      imageBounds.x + imageBounds.width - guideBounds.x - guideBounds.width,
+      Math.max(0, viewport.x + viewport.width - guideBounds.x - guideBounds.width),
       guideBounds.height,
     );
     context.restore();
@@ -284,13 +425,8 @@ export function drawCompositionPreview(
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.fillStyle = "#eae5da";
   context.fillRect(0, 0, width, height);
-  const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
-  const imageBounds = {
-    x: (width - image.naturalWidth * scale) / 2,
-    y: (height - image.naturalHeight * scale) / 2,
-    width: image.naturalWidth * scale,
-    height: image.naturalHeight * scale,
-  };
+  const layout = getPreviewLayout(width, height, image.naturalWidth, image.naturalHeight, plan);
+  const imageBounds = layout.imageBounds;
   context.drawImage(image, imageBounds.x, imageBounds.y, imageBounds.width, imageBounds.height);
-  drawCompositionGuides(context, imageBounds, plan);
+  drawCompositionGuides(context, imageBounds, plan, { x: 0, y: 0, width, height });
 }
