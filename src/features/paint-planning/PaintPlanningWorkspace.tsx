@@ -4,8 +4,11 @@ import i18nInstance from "../../i18n";
 import {
   calculatePaintConsumption,
   createId,
+  defaultProjectWorkspace,
   paintColorSchema,
   paintMixNoteSchema,
+  paintOpticalDataSchema,
+  suggestKubelkaMunkMix,
   suggestPaintMix,
   type PaintAmountUnit,
   type PaintColor,
@@ -18,18 +21,10 @@ import {
 } from "../../domain";
 import { paintPlanningRepository } from "../../storage";
 
-type PaintDraft = {
-  manufacturer: string;
-  name: string;
-  pigmentCode: string;
-  hex: string;
-};
+type PaintDraft = ProjectWorkspace["paint"]["draft"];
 
 const emptyPaintDraft: PaintDraft = {
-  manufacturer: "",
-  name: "",
-  pigmentCode: "",
-  hex: "#808080",
+  ...defaultProjectWorkspace.paint.draft,
 };
 
 function formatNumber(value: number, locale: string, maximumFractionDigits = 1): string {
@@ -44,10 +39,14 @@ function sortPaints(paints: PaintColor[], locale: string): PaintColor[] {
   );
 }
 
-function mixDescription(suggestion: PaintMixSuggestion, locale: string): string {
+function mixDescription(
+  suggestion: PaintMixSuggestion,
+  locale: string,
+  massFractionSuffix: string,
+): string {
   return suggestion.components
     .map(({ paint, fraction }) =>
-      `${paint.manufacturer} · ${paint.name} (${formatNumber(fraction * 100, locale)}%)`,
+      `${paint.manufacturer} · ${paint.name} (${formatNumber(fraction * 100, locale)}%${suggestion.model === "kubelka-munk-single-constant-v1" ? ` ${massFractionSuffix}` : ""})`,
     )
     .join(" + ");
 }
@@ -117,6 +116,72 @@ function PaintInventoryForm({
           </span>
         </label>
       </div>
+      <fieldset className="mt-4 rounded-lg border border-stone-200 bg-white p-3">
+        <legend className="px-1 text-xs font-semibold text-stone-700">{t("paint.spectrumHeading")}</legend>
+        <p className="text-xs leading-5 text-stone-500">{t("paint.spectrumDescription")}</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-1.5 text-xs font-medium text-stone-600">
+            <label htmlFor="paint-spectrum-provenance">{t("paint.spectrumProvenance")}</label>
+            <select
+              id="paint-spectrum-provenance"
+              value={draft.spectralProvenance}
+              onChange={(event) => onChange({
+                ...draft,
+                spectralProvenance: event.target.value as PaintDraft["spectralProvenance"],
+              })}
+              className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800"
+            >
+              <option value="measured">{t("paint.spectrumMeasured")}</option>
+              <option value="manufacturer">{t("paint.spectrumManufacturer")}</option>
+              <option value="estimated">{t("paint.spectrumEstimated")}</option>
+            </select>
+          </div>
+          <label className="grid gap-1.5 text-xs font-medium text-stone-600">
+            {t("paint.spectrumSource")}
+            <input
+              maxLength={300}
+              value={draft.spectralSource}
+              onChange={(event) => onChange({ ...draft, spectralSource: event.target.value })}
+              className="rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+            />
+          </label>
+          <label className="grid gap-1.5 text-xs font-medium text-stone-600 sm:col-span-2">
+            {t("paint.spectrumSamples")}
+            <textarea
+              rows={3}
+              maxLength={1000}
+              value={draft.reflectanceSamples}
+              onChange={(event) => onChange({ ...draft, reflectanceSamples: event.target.value })}
+              className="resize-y rounded-lg border border-stone-200 px-3 py-2 font-mono text-xs text-stone-800"
+              placeholder="0.08, 0.09, 0.10, …"
+            />
+          </label>
+          <label className="flex items-start gap-2 text-xs leading-5 text-stone-600 sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={draft.infiniteLayerConfirmed}
+              onChange={(event) => onChange({
+                ...draft,
+                infiniteLayerConfirmed: event.target.checked,
+              })}
+              className="mt-1"
+            />
+            {t("paint.spectrumInfiniteLayer")}
+          </label>
+          <label className="grid gap-1.5 text-xs font-medium text-stone-600">
+            {t("paint.spectrumDensity")}
+            <input
+              type="number"
+              min="0"
+              step="any"
+              inputMode="decimal"
+              value={draft.densityGPerMl}
+              onChange={(event) => onChange({ ...draft, densityGPerMl: event.target.value })}
+              className="rounded-lg border border-stone-200 px-3 py-2 text-sm text-stone-800"
+            />
+          </label>
+        </div>
+      </fieldset>
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="submit"
@@ -315,8 +380,10 @@ export function PaintPlanningWorkspace({
   }, [loading, noteDrafts, project.id, t]);
 
   const suggestions = useMemo(
-    () => palette?.colors.map((color) => suggestPaintMix(color.hex, paints)) ?? [],
-    [palette, paints],
+    () => palette?.colors.map((color) => preferences.mixingModel === "kubelka-munk"
+      ? suggestKubelkaMunkMix(color.hex, paints)
+      : suggestPaintMix(color.hex, paints)) ?? [],
+    [palette, paints, preferences.mixingModel],
   );
   const parsedAmount = Number(totalAmount);
   const validAmount = totalAmount.trim() !== "" && Number.isFinite(parsedAmount) && parsedAmount > 0;
@@ -326,8 +393,9 @@ export function PaintPlanningWorkspace({
       palette.colors,
       parsedAmount,
       suggestions,
+      unit,
     );
-  }, [palette, parsedAmount, suggestions, validAmount]);
+  }, [palette, parsedAmount, suggestions, unit, validAmount]);
 
   function resetPaintDraft() {
     setDraft(emptyPaintDraft);
@@ -344,14 +412,42 @@ export function PaintPlanningWorkspace({
     event.preventDefault();
     const now = new Date().toISOString();
     const existing = paints.find((paint) => paint.id === editingPaintId);
+    const reflectanceText = draft.reflectanceSamples.trim();
+    let opticalData: PaintColor["opticalData"];
+    if (reflectanceText !== "") {
+      const reflectance = reflectanceText.split(/[\s,;]+/).map(Number);
+      const parsedOpticalData = paintOpticalDataSchema.safeParse({
+        schemaVersion: 1,
+        provenance: draft.spectralProvenance,
+        source: draft.spectralSource,
+        wavelengthStartNm: 380,
+        wavelengthIntervalNm: 10,
+        measurementCondition: "diffuse-infinite-layer",
+        reflectance,
+      });
+      if (!draft.infiniteLayerConfirmed || !parsedOpticalData.success) {
+        setError(t("paint.spectrumValidation"));
+        return;
+      }
+      opticalData = parsedOpticalData.data;
+    }
+
+    const densityText = draft.densityGPerMl.trim();
+    const densityGPerMl = densityText === "" ? undefined : Number(densityText);
+    if (densityGPerMl !== undefined && (!Number.isFinite(densityGPerMl) || densityGPerMl <= 0)) {
+      setError(t("paint.spectrumValidation"));
+      return;
+    }
     const parsed = paintColorSchema.safeParse({
       id: existing?.id ?? createId<"PaintId">(),
-      schemaVersion: 1,
+      schemaVersion: 2,
       projectId: project.id,
       manufacturer: draft.manufacturer,
       name: draft.name,
       pigmentCode: draft.pigmentCode,
       hex: draft.hex,
+      opticalData,
+      densityGPerMl,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     });
@@ -386,6 +482,11 @@ export function PaintPlanningWorkspace({
       name: paint.name,
       pigmentCode: paint.pigmentCode,
       hex: paint.hex,
+      reflectanceSamples: paint.opticalData?.reflectance.join(", ") ?? "",
+      spectralProvenance: paint.opticalData?.provenance ?? "measured",
+      spectralSource: paint.opticalData?.source ?? "",
+      infiniteLayerConfirmed: paint.opticalData !== undefined,
+      densityGPerMl: paint.densityGPerMl?.toString() ?? "",
     });
     setEditingPaintId(paint.id);
     onPreferencesChange({
@@ -394,6 +495,11 @@ export function PaintPlanningWorkspace({
         name: paint.name,
         pigmentCode: paint.pigmentCode,
         hex: paint.hex,
+        reflectanceSamples: paint.opticalData?.reflectance.join(", ") ?? "",
+        spectralProvenance: paint.opticalData?.provenance ?? "measured",
+        spectralSource: paint.opticalData?.source ?? "",
+        infiniteLayerConfirmed: paint.opticalData !== undefined,
+        densityGPerMl: paint.densityGPerMl?.toString() ?? "",
       },
       editingPaintId: paint.id,
     });
@@ -510,6 +616,9 @@ export function PaintPlanningWorkspace({
                 <span className="min-w-0 flex-1 text-xs leading-5 text-stone-700">
                   <strong className="block truncate">{paint.manufacturer} · {paint.name}</strong>
                   <span>{paint.pigmentCode || t("paint.noCode")} · {paint.hex}</span>
+                  <span className="block text-[10px] text-stone-500">
+                    {paint.opticalData ? t("paint.hasSpectrum") : t("paint.rgbOnly")}
+                  </span>
                 </span>
                 <span className="flex shrink-0 flex-col gap-1">
                   <button
@@ -553,6 +662,30 @@ export function PaintPlanningWorkspace({
         <p className="mt-1 text-xs leading-5 text-stone-500">
           {t("paint.mixingDescription")}
         </p>
+        <div className="mt-3 grid gap-2 sm:max-w-2xl">
+          <label className="grid gap-1.5 text-xs font-medium text-stone-600">
+            {t("paint.mixingModel")}
+            <select
+              aria-label={t("paint.mixingModel")}
+              value={preferences.mixingModel}
+              onChange={(event) => onPreferencesChange({
+                mixingModel: event.target.value as ProjectWorkspace["paint"]["mixingModel"],
+              })}
+              className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800"
+            >
+              <option value="rgb">{t("paint.mixingModelRgb")}</option>
+              <option value="kubelka-munk">{t("paint.mixingModelKubelkaMunk")}</option>
+            </select>
+          </label>
+          <p className="text-xs leading-5 text-stone-500">
+            {preferences.mixingModel === "kubelka-munk"
+              ? t("paint.kubelkaMunkModeDescription")
+              : t("paint.rgbModeDescription")}
+          </p>
+          {preferences.mixingModel === "kubelka-munk" && (
+            <p className="text-xs leading-5 text-amber-800">{t("paint.kmOnlySpectralInputs")}</p>
+          )}
+        </div>
         {!palette ? (
           <p role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
             {t("paint.makePalette")}
@@ -573,16 +706,51 @@ export function PaintPlanningWorkspace({
                   ) : suggestion ? (
                     <>
                       <p className="mt-3 text-xs leading-5 text-stone-700">
-                        {t("paint.suggestedMix", { mix: mixDescription(suggestion, i18n.language) })}
+                        {t("paint.suggestedMix", {
+                          mix: mixDescription(
+                            suggestion,
+                            i18n.language,
+                            t("paint.massFractionSuffix"),
+                          ),
+                        })}
                       </p>
                       <p className="mt-1 text-xs leading-5 text-stone-600">
                         {t("paint.estimatedColor")} <strong>{suggestion.estimatedHex}</strong>
-                        {" · "}{t("paint.rgbDifference")} {formatNumber(suggestion.rgbDistance, i18n.language, 1)}
+                        {" · "}{suggestion.model === "kubelka-munk-single-constant-v1"
+                          ? t("paint.deltaE00")
+                          : t("paint.rgbDifference")}{" "}
+                        {formatNumber(suggestion.model === "kubelka-munk-single-constant-v1"
+                          ? suggestion.deltaE2000
+                          : suggestion.rgbDistance, i18n.language, 1)}
                       </p>
+                      <p className="mt-1 text-[10px] leading-4 text-stone-500">
+                        {t(suggestion.model === "kubelka-munk-single-constant-v1"
+                          ? "paint.mixingModelKubelkaMunk"
+                          : "paint.mixingModelRgb")}
+                      </p>
+                      {suggestion.model === "kubelka-munk-single-constant-v1" && (
+                        <p className="mt-1 text-[10px] leading-4 text-stone-500">
+                          {t("paint.spectralSources", {
+                            sources: suggestion.components.flatMap(({ paint }) => {
+                              if (!paint.opticalData) return [];
+                              const provenance = {
+                                measured: t("paint.spectrumMeasured"),
+                                manufacturer: t("paint.spectrumManufacturer"),
+                                estimated: t("paint.spectrumEstimated"),
+                              }[paint.opticalData.provenance];
+                              return [
+                                `${paint.manufacturer} · ${paint.name}: ${provenance} · ${paint.opticalData.source}`,
+                              ];
+                            }).join("; "),
+                          })}
+                        </p>
+                      )}
                     </>
                   ) : (
                     <p className="mt-3 text-xs text-stone-500">
-                      {t("paint.addForSuggestion")}
+                      {preferences.mixingModel === "kubelka-munk"
+                        ? t("paint.kmUnavailable")
+                        : t("paint.addForSuggestion")}
                     </p>
                   )}
                   <label className="mt-3 grid gap-1.5 text-xs font-medium text-stone-600">
@@ -688,14 +856,26 @@ export function PaintPlanningWorkspace({
               <p role="status" className="mt-2 text-xs text-amber-800">
                 {t("paint.addPaintsForTotal")}
               </p>
-            ) : estimate && estimate.unmatchedPaletteNumbers.length > 0 ? (
-              <p role="status" className="mt-2 text-xs text-amber-800">
-                {t("paint.missingMixes")}
-              </p>
             ) : estimate ? (
-              <div className="mt-2 rounded-lg border border-stone-200">
-                <PaintDemandTable estimate={estimate} unit={unit} />
-              </div>
+              <>
+                {estimate.unmatchedPaletteNumbers.length > 0 && (
+                  <p role="status" className="mt-2 text-xs text-amber-800">
+                    {t("paint.missingMixes")}
+                  </p>
+                )}
+                {estimate.missingDensityPaletteNumbers.length > 0 && (
+                  <p role="status" className="mt-2 text-xs text-amber-800">
+                    {t("paint.missingDensity")}
+                  </p>
+                )}
+                {estimate.unmatchedPaletteNumbers.length === 0
+                  && estimate.missingDensityPaletteNumbers.length === 0
+                  && estimate.paintRows.length > 0 && (
+                    <div className="mt-2 rounded-lg border border-stone-200">
+                      <PaintDemandTable estimate={estimate} unit={unit} />
+                    </div>
+                  )}
+              </>
             ) : null}
           </section>
         </div>
@@ -705,7 +885,9 @@ export function PaintPlanningWorkspace({
           </p>
         )}
         <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-          {t("paint.caveat")}
+          {t(preferences.mixingModel === "kubelka-munk"
+            ? "paint.kubelkaMunkCaveat"
+            : "paint.caveat")}
         </p>
       </section>
     </section>

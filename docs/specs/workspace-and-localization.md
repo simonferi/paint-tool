@@ -4,8 +4,8 @@
 
 The project workspace follows the order of painting preparation:
 
-1. Upload the reference image and the image of the work in progress.
-2. Review aspect ratio, canvas dimensions, grid, and tone analysis.
+1. Upload the reference image and the image of the work in progress; choose Crop or Change canvas size and adjust the reference frame.
+2. Review aspect ratio, canvas dimensions, grid, and tone analysis for the selected reference framing.
 3. Generate a palette and numbered/per-color maps.
 4. Review the paint inventory, mixing suggestions, and quantity estimates.
 
@@ -13,7 +13,7 @@ Visible, responsive, keyboard-accessible section navigation links to the main st
 
 ## Project settings
 
-- The complete composition settings, palette source and requested color count, contour visibility, paint quantity and unit, and in-progress paint form are project metadata.
+- The complete composition settings, reference framing mode and frame state, palette source and requested color count, contour visibility, paint quantity and unit, and in-progress paint form are project metadata.
 - Save metadata automatically to local IndexedDB after a short delay.
 - Restore the latest saved state after switching projects or reloading the page.
 - Paint inventory and mixing notes are separate project data and are also stored locally.

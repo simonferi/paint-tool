@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   calculatePaintConsumption,
   paintColorSchema,
+  suggestKubelkaMunkMix,
   suggestPaintMix,
   type PaintColor,
 } from "./paint-planning";
+import { hexFromReflectance } from "./spectral-colorimetry";
 
 const projectId = "project-1" as PaintColor["projectId"];
 const timestamp = "2026-01-01T00:00:00.000Z";
@@ -12,7 +14,7 @@ const timestamp = "2026-01-01T00:00:00.000Z";
 function paint(id: string, name: string, hex: string): PaintColor {
   return {
     id,
-    schemaVersion: 1,
+    schemaVersion: 2,
     projectId,
     manufacturer: "Műhely",
     name,
@@ -31,6 +33,7 @@ describe("paint mixing suggestions", () => {
       targetHex: "#FF0000",
       components: [{ paint: red, fraction: 1 }],
       estimatedHex: "#FF0000",
+      model: "rgb-linear-v1",
       rgbDistance: 0,
     });
   });
@@ -80,6 +83,7 @@ describe("paint consumption estimates", () => {
       ["black", 25 * (127 / 255)],
     ]);
     expect(estimate.unmatchedPaletteNumbers).toEqual([]);
+    expect(estimate.missingDensityPaletteNumbers).toEqual([]);
   });
 
   it("rejects missing palette data and non-positive or non-finite quantities", () => {
@@ -97,5 +101,61 @@ describe("paint consumption estimates", () => {
     expect(parsed.hex).toBe("#ABCDEF");
     expect(parsed.manufacturer).toBe("Műhely");
     expect(() => paintColorSchema.parse({ ...parsed, hex: "blue" })).toThrow();
+  });
+
+  it("only proposes Kubelka–Munk mixes from records with sourced reflectance data", () => {
+    const reflected = Array<number>(41).fill(0.42);
+    const measured = {
+      ...paint("measured", "Mért festék", "#808080"),
+      opticalData: {
+        schemaVersion: 1 as const,
+        provenance: "measured" as const,
+        source: "Instrument reading",
+        wavelengthStartNm: 380 as const,
+        wavelengthIntervalNm: 10 as const,
+        measurementCondition: "diffuse-infinite-layer" as const,
+        reflectance: reflected,
+      },
+    };
+    const targetHex = hexFromReflectance(reflected);
+    const suggestion = suggestKubelkaMunkMix(targetHex, [measured]);
+
+    expect(suggestKubelkaMunkMix(targetHex, [paint("hex-only", "HEX only", "#808080")])).toBeNull();
+    expect(suggestion?.components).toEqual([{ paint: measured, fraction: 1 }]);
+    expect(suggestion?.model).toBe("kubelka-munk-single-constant-v1");
+    expect(suggestion?.estimatedHex).toBe(targetHex);
+    expect(suggestion?.estimatedHex).not.toBe(measured.hex);
+    expect(suggestion?.deltaE2000).toBeLessThan(0.2);
+  });
+
+  it("converts physical mass ratios to volume only when densities are available", () => {
+    const heavy = { ...paint("heavy", "Heavy", "#111111"), densityGPerMl: 2 };
+    const light = { ...paint("light", "Light", "#EEEEEE"), densityGPerMl: 1 };
+    const suggestion = {
+      targetHex: "#808080",
+      components: [
+        { paint: heavy, fraction: 0.5 },
+        { paint: light, fraction: 0.5 },
+      ],
+      estimatedHex: "#808080",
+      model: "kubelka-munk-single-constant-v1" as const,
+      deltaE2000: 0,
+    };
+    const color = [{ number: 1, hex: "#808080", pixelCount: 1 }];
+    const byVolume = calculatePaintConsumption(color, 10, [suggestion], "ml");
+    const withoutDensity = calculatePaintConsumption(color, 10, [
+      { ...suggestion, components: suggestion.components.map(({ paint, fraction }) => ({
+        paint: { ...paint, densityGPerMl: undefined },
+        fraction,
+      })) },
+    ], "ml");
+
+    const quantitiesById = Object.fromEntries(
+      byVolume.paintRows.map(({ paint: item, quantity }) => [item.id, quantity]),
+    );
+    expect(quantitiesById.light).toBeCloseTo(20 / 3, 12);
+    expect(quantitiesById.heavy).toBeCloseTo(10 / 3, 12);
+    expect(withoutDensity.paintRows).toEqual([]);
+    expect(withoutDensity.missingDensityPaletteNumbers).toEqual([1]);
   });
 });

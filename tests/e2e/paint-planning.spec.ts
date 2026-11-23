@@ -34,19 +34,38 @@ test("edits the local paint inventory, saves mixing notes, and estimates consump
   await page.getByRole("button", { name: "Paletta készítése" }).click();
   await expect(page.getByText("A paletta elkészült: 4 szín.")).toBeVisible();
 
-  await page.getByLabel("Gyártó").fill("Műhely");
+  await page.getByRole("textbox", { name: "Gyártó" }).fill("Műhely");
   await page.getByLabel("Szín neve").fill("Fekete");
   await page.getByLabel("Pigment- vagy termékkód").fill("PBk7");
   await page.getByLabel("Festék digitális színmintája").fill("#000000");
   await page.getByRole("button", { name: "Festék hozzáadása" }).click();
   await expect(page.getByText("A festék bekerült a helyi készletbe.")).toBeVisible();
 
-  await page.getByLabel("Gyártó").fill("Műhely");
+  await page.getByRole("textbox", { name: "Gyártó" }).fill("Műhely");
   await page.getByLabel("Szín neve").fill("Fehér");
   await page.getByLabel("Pigment- vagy termékkód").fill("PW6");
   await page.getByLabel("Festék digitális színmintája").fill("#FFFFFF");
   await page.getByRole("button", { name: "Festék hozzáadása" }).click();
   await expect(page.locator("ul").getByText("Műhely · Fehér", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Szerkesztés: Fehér" }).click();
+  await page.getByLabel("Adatforrás vagy mérési hivatkozás").fill("Test instrument reading");
+  await page.getByLabel("Reflexiós értékek (380–780 nm, 10 nm-es lépés)")
+    .fill(Array<string>(41).fill("0.5").join(", "));
+  await page.getByLabel(
+    "Megerősítem, hogy ezek egy optikailag vastag, homogén festékréteg diffúz reflexiós értékei.",
+  ).check();
+  await page.getByRole("button", { name: "Festék mentése" }).click();
+  await expect(page.getByText("A festék adatai elmentve.")).toBeVisible();
+
+  await page.getByLabel("Teljes tervezett festékmennyiség").fill("10");
+  await page.getByLabel("Keverési modell").selectOption("kubelka-munk");
+  await expect(page.getByText("CIEDE2000 ΔE00:")).toHaveCount(4);
+  await expect(page.getByText(/Optikai adatok eredete:.*Test instrument reading/).first()).toBeVisible();
+  await page.getByLabel("Mennyiség egysége").selectOption("ml");
+  await expect(page.getByText(/A fizikai milliliteres bontáshoz minden receptbeli festék sűrűsége szükséges/).first()).toBeVisible();
+  await page.getByLabel("Keverési modell").selectOption("rgb");
+  await page.getByLabel("Mennyiség egysége").selectOption("g");
 
   const note = "Próbakeverés után szükség esetén kevés okkert adj hozzá.";
   await page.getByLabel("Keverési jegyzet a 1. színhez").fill(note);

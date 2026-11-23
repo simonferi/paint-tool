@@ -9,6 +9,8 @@ import {
   type Project,
   type ProjectAsset,
   type ProjectId,
+  projectSchemaVersion,
+  type ProjectWorkspace,
 } from "../domain";
 import type { DirectoryHandleLike } from "./filesystem-types";
 
@@ -28,7 +30,16 @@ export type StorageBindingRecord = {
 type MigratingProjectRecord = {
   schemaVersion?: number;
   composition?: Partial<Project["composition"]>;
-  workspace?: Project["workspace"];
+  workspace?: {
+    palette?: ProjectWorkspace["palette"];
+    paint?: Partial<ProjectWorkspace["paint"]> & {
+      draft?: Partial<ProjectWorkspace["paint"]["draft"]>;
+    };
+  };
+};
+
+type MigratingPaintColorRecord = {
+  schemaVersion?: number;
 };
 
 export class PaintToolDatabase extends Dexie {
@@ -120,6 +131,43 @@ export class PaintToolDatabase extends Dexie {
           },
         };
       });
+    });
+    this.version(7).stores({
+      projects: "id, updatedAt",
+      assets: "id, projectId, [projectId+role]",
+      analyses: "id, assetId, [assetId+assetRevision+analysisVersion]",
+      fallbackBlobs: "assetId",
+      storageBindings: "projectId, rootKey",
+      paintColors: "id, projectId, manufacturer, name",
+      paintMixNotes: "id, projectId, [projectId+targetHex]",
+      palettes: "id, projectId, assetId, [projectId+savedAt]",
+    }).upgrade(async (transaction) => {
+      await Promise.all([
+        transaction.table("projects").toCollection().modify((project: MigratingProjectRecord) => {
+          const composition = project.composition ?? {};
+          project.schemaVersion = projectSchemaVersion;
+          project.composition = {
+            ...structuredClone(defaultCompositionPlan),
+            ...composition,
+            crop: {
+              ...defaultCompositionPlan.crop,
+              ...(composition.crop ?? {}),
+            },
+          };
+          project.workspace ??= structuredClone(defaultProjectWorkspace);
+          project.workspace.paint ??= structuredClone(defaultProjectWorkspace.paint);
+          project.workspace.paint.mixingModel ??= "rgb";
+          project.workspace.paint.draft ??= structuredClone(defaultProjectWorkspace.paint.draft);
+          project.workspace.paint.draft.reflectanceSamples ??= "";
+          project.workspace.paint.draft.spectralProvenance ??= "measured";
+          project.workspace.paint.draft.spectralSource ??= "";
+          project.workspace.paint.draft.infiniteLayerConfirmed ??= false;
+          project.workspace.paint.draft.densityGPerMl ??= "";
+        }),
+        transaction.table("paintColors").toCollection().modify((paint: MigratingPaintColorRecord) => {
+          paint.schemaVersion = 2;
+        }),
+      ]);
     });
   }
 }

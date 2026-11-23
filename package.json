@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
+    "validate:paint-catalogs": "vitest run src/domain/paint-catalog.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "lint": "eslint src vite.config.ts vitest.config.ts playwright.config.ts eslint.config.mjs"

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "synthetic-demo",
+  "title": "Synthetic format demonstration only",
+  "source": {
+    "title": "Invented values for validating the file format; not a paint dataset",
+    "authors": [],
+    "license": "CC0-1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "attribution": "Synthetic schema fixture; no real paint or manufacturer is represented."
+  },
+  "sampleFiles": [
+    "samples/example-paint.json"
+  ]
+}

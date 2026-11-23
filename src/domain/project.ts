@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { AssetId, AssetRevision, ProjectId } from "./ids";
 import { paletteSizeSchema } from "./palette";
 
-export const projectSchemaVersion = 4 as const;
+export const projectSchemaVersion = 5 as const;
 
 export const storageModeSchema = z.enum(["filesystem", "indexeddb"]);
 export type StorageMode = z.infer<typeof storageModeSchema>;
@@ -83,11 +83,17 @@ export const projectWorkspaceSchema = z.object({
   paint: z.object({
     totalAmount: z.string().max(40),
     unit: paintAmountUnitSchema,
+    mixingModel: z.enum(["rgb", "kubelka-munk"]),
     draft: z.object({
       manufacturer: z.string().max(100),
       name: z.string().max(100),
       pigmentCode: z.string().max(64),
       hex: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+      reflectanceSamples: z.string().max(1000),
+      spectralProvenance: z.enum(["measured", "manufacturer", "estimated"]),
+      spectralSource: z.string().max(300),
+      infiniteLayerConfirmed: z.boolean(),
+      densityGPerMl: z.string().max(40),
     }),
     editingPaintId: z.string().nullable(),
   }),
@@ -103,11 +109,17 @@ export const defaultProjectWorkspace: ProjectWorkspace = {
   paint: {
     totalAmount: "",
     unit: "g",
+    mixingModel: "rgb",
     draft: {
       manufacturer: "",
       name: "",
       pigmentCode: "",
       hex: "#808080",
+      reflectanceSamples: "",
+      spectralProvenance: "measured",
+      spectralSource: "",
+      infiniteLayerConfirmed: false,
+      densityGPerMl: "",
     },
     editingPaintId: null,
   },

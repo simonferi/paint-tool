@@ -13,12 +13,36 @@ Let artists compare the composition of a reference, an in-progress image, and a 
 - Planned width and height in centimeters.
 - Grid type and its parameters.
 
-## Aspect-ratio frame
+## Crop and canvas-size frame
 
-- Center the frame to indicate a crop without cropping or rewriting the uploaded image.
-- The area outside the frame may be faded; the frame boundary must remain visible.
-- For a custom frame, the ratio is `width_cm / height_cm`.
-- If either dimension is missing or non-positive, the custom frame is unavailable and an explanatory message is shown.
+The frame uses the planned canvas ratio `W / H`, where `W` and `H` are the planned width and height in centimeters. The ratio is locked during interaction; changing its size scales both dimensions proportionally. The planned centimeter dimensions determine the ratio, not the output pixel resolution.
+
+### Crop
+
+- Keep the frame entirely within the source image. Its contents are the selected reference region.
+- Allow the user to resize the frame proportionally and move it horizontally or vertically relative to the reference.
+- Clamp the frame at the image edges. Its largest size is the largest rectangle with the target ratio that fits inside the source image; its smallest size must retain a useful output resolution.
+- Apply the selected crop as a non-destructive transform to the composition preview, tone analysis, palette extraction, and map/export source. Preserve the uploaded source file unchanged.
+- Include crop geometry and source-asset revision in analysis and palette cache identity. Changing the crop invalidates derived results for the previous frame.
+
+### Change canvas size
+
+- Keep every source-image pixel inside the target-ratio frame. The frame represents a larger canvas around the reference image, not a crop.
+- Allow proportional enlargement or reduction down to the smallest frame that contains the full source image, and movement while constraining it so no part of the original image is clipped.
+- Display the area inside the frame but outside the source image as blank/unpainted canvas. Do not generate or infer image content there.
+- Tone and palette analysis use the source-image pixels only. Normalize palette percentages over those assigned image pixels and report canvas coverage separately; do not treat blank extension as a palette color. Maps may render the blank area, but it remains unassigned.
+- The default blank-canvas fill/appearance and whether it is configurable or exported remain an open product decision.
+
+### Interaction, display, and persistence
+
+- Provide a visible draggable frame with proportional corner handles, plus accessible sliders and numeric fields for scale and horizontal/vertical position. Support pointer, touch, and keyboard input.
+- Show the area outside the frame with a darkened or faded overlay while keeping the active frame legible. In Change canvas size mode, distinguish blank extension inside the frame from the dimmed outside area.
+- Provide a mode-default reset: the largest target-ratio crop that fits for Crop, or the smallest frame that contains the full source image for Change canvas size. Also allow restoring the unmodified full-image state.
+- Provide an unmodified full-image state. Until the user selects Crop or Change canvas size, keep the full source image as the downstream input; allow the user to return to this state without deleting the source.
+- Store the mode, scale, and position in project metadata associated with the selected reference asset. Use normalized image-relative coordinates so the selection is independent of preview size.
+- If planned dimensions change the target ratio, preserve the frame center and scale as far as possible, recalculate its locked-ratio geometry, and clamp it to valid bounds for the current mode. Show feedback if clamping changes the requested size or position.
+- When a reference image is replaced, do not apply the old asset's saved coordinates to the new image; initialize a new default frame and explain that it can be adjusted.
+- If planned dimensions are missing or non-positive, disable ratio-locked framing and show an explanatory message. Do not fall back silently to a different ratio.
 
 ## Crop and canvas-size frame
 
@@ -60,11 +84,14 @@ Let `W` and `H` be the planned canvas width and height in centimeters.
 ## Rendering and state updates
 
 - Reference and in-progress previews use the same selected aspect ratio and grid settings.
+- The selected Crop or Change canvas size frame is visible in the reference preview and drives the corresponding derived composition.
 - The combined palette map and all per-color maps use the same selected grid and aspect-ratio frame.
-- Changes to grid settings update previews and available map exports.
-- A grid is a visual overlay and does not modify the source image.
+- Changes to framing or grid settings update previews, analysis that depends on the reference region, palette maps, and available exports.
+- Do not reuse analyses or palette results created from the full image or a different crop frame.
+- Grids and framing are non-destructive transforms/overlays and do not modify the source image.
 - Status text shows the selected column/row counts or calculated spacing in centimeters. Invalid dimensions or overly dense settings must not produce a misleading grid.
 - Aspect ratio, dimensions, and grid settings are automatically saved as project metadata and restored after a project switch or reload.
+- Framing changes must not invalidate or rewrite the stored original image or its source dimensions.
 
 ## Acceptance examples
 
@@ -72,3 +99,8 @@ Let `W` and `H` be the planned canvas width and height in centimeters.
 2. `30 × 24 cm` with a 4 cm square grid: show 7 interior vertical and 5 interior horizontal lines; edge cells may differ in size.
 3. A 10 × 10 grid appears on every image preview and palette map and is included in exported PNG files.
 4. Empty dimensions or invalid division counts produce an explanatory status.
+5. In Crop mode, moving or resizing the frame never extends outside the image; tone analysis, palette maps, and exports use the selected region, while the original file remains intact.
+6. In Change canvas size mode, the complete source image remains visible within the frame, added area is visibly blank and excluded from palette-area calculations, and movement never clips source pixels.
+7. Dragging, proportional resizing, and keyboard adjustments preserve the planned aspect ratio. The outside-frame overlay remains visible, and the framing state restores after reload.
+8. Changing planned dimensions updates the frame ratio, preserves its position/size as far as mode constraints allow, and visibly reports any required clamping.
+9. A project with no selected framing operation continues to use the full source image. Restoring this state removes framing effects from downstream analysis and maps without changing the uploaded file.

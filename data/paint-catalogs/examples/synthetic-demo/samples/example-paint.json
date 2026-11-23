@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "sampleId": "example-paint-sample",
+  "provenance": "synthetic",
+  "product": {
+    "id": "example-paint",
+    "manufacturer": "Example only",
+    "productLine": "Not applicable",
+    "name": "Synthetic format example",
+    "productCode": "DEMO-01",
+    "pigmentCodes": []
+  },
+  "application": {
+    "type": "single-paint",
+    "preparation": "Invented values for schema validation only.",
+    "substrate": "Not applicable",
+    "backing": "Not applicable",
+    "dilution": "Not applicable",
+    "varnish": "not-applicable",
+    "notes": "Not a measured spectrum and not suitable for a mixing recommendation."
+  },
+  "measurement": {
+    "method": "synthetic",
+    "instrument": "Not applicable",
+    "geometry": "Not applicable",
+    "specularCondition": "unknown",
+    "wavelengthStartNm": 400,
+    "wavelengthEndNm": 420,
+    "sampleCount": 3,
+    "wavelengthIntervalNm": 10
+  },
+  "spectrumFile": "spectra/example-paint.csv"
+}

@@ -1,6 +1,7 @@
 import {
   defaultCompositionPlan,
   defaultProjectWorkspace,
+  projectSchemaVersion,
   type Project,
   type ProjectAsset,
 } from "./project";
@@ -15,7 +16,7 @@ export function createProject(name: string, now = new Date()): Project {
   const timestamp = now.toISOString();
   return {
     id: createId<"ProjectId">(),
-    schemaVersion: 4,
+    schemaVersion: projectSchemaVersion,
     name: name.trim() || "Új festőprojekt",
     createdAt: timestamp,
     updatedAt: timestamp,

@@ -3,3 +3,5 @@ export * from "./project";
 export * from "./project-factory";
 export * from "./palette";
 export * from "./paint-planning";
+export * from "./spectral-colorimetry";
+export * from "./paint-catalog";

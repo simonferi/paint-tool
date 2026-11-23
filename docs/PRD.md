@@ -24,13 +24,14 @@ The application is a decision-support tool. The artist makes the final compositi
 
 1. Make it easy to compare the composition and tones of a reference and an in-progress painting.
 2. Produce a numbered, limited-color palette and area maps.
-3. Suggest approximate mixes from user-entered oil paints and estimate total consumption.
-4. Export palette maps with the selected guides.
-5. Keep product requirements technology-independent so the MVP can be replaced by another implementation.
+3. Suggest mixes from the user's paint inventory and estimate total consumption.
+4. Where suitable optical data is available, provide a physically informed paint-mixing estimate based on Kubelka–Munk theory, with its assumptions and uncertainty clearly stated.
+5. Export palette maps with the selected guides.
+6. Keep product requirements technology-independent so the MVP can be replaced by another implementation.
 
 ### Non-goals for the MVP
 
-- Accurately simulating physical pigment mixing, opacity, transparency, drying, or brand-specific paint behavior.
+- Claiming laboratory accuracy for physical pigment mixing, opacity, transparency, drying, or brand-specific paint behavior.
 - Predicting actual paint consumption with laboratory accuracy.
 - Automatically creating a finished painting or replacing artistic judgment.
 - Cloud synchronization, collaborative editing, accounts, or community features.
@@ -39,7 +40,7 @@ The application is a decision-support tool. The artist makes the final compositi
 ## 5. Primary user workflow
 
 1. Upload a reference image and optionally a photo of the work in progress.
-2. Set the target aspect ratio or planned canvas width and height in centimeters.
+2. Set the planned canvas dimensions, then choose and adjust a reference crop or expanded-canvas frame.
 3. Choose guides or a grid, or enter custom column/row counts or a grid spacing in centimeters.
 4. Choose the number of palette colors, generate the color maps, and review the numbered and per-color maps.
 5. Add available paints to a personal inventory and review suggested mixes for the palette colors.
@@ -54,7 +55,7 @@ The application is a decision-support tool. The artist makes the final compositi
 - The upload area shows a proportionally scaled thumbnail of the complete image and its aspect ratio.
 - Composition frames and selected guides appear over the images.
 - Users can compare the aspect ratios and tone distributions of the reference and in-progress images.
-- Original image content remains unchanged; guides affect only previews and exported maps.
+- Never overwrite the original image. Framing changes are non-destructive and define the derived view used by composition, analysis, and map generation.
 
 ### FR-02 — Aspect ratio, dimensions, and grids
 
@@ -83,6 +84,7 @@ The application is a decision-support tool. The artist makes the final compositi
 - Suggest a mix for each palette color using one or two paints from the inventory.
 - Show the paints used, their proportions, and an approximate difference from the target screen color.
 - Keep the paint inventory and saved mixing notes locally in the MVP.
+- Treat HEX/RGB swatches as display values only; they are not enough to infer product-specific spectral behavior.
 
 ### FR-06 — Palette and paint consumption
 
@@ -90,6 +92,7 @@ The application is a decision-support tool. The artist makes the final compositi
 - The first table shows each palette color's number, color identifier/HEX, percentage of image area, and estimated quantity, sorted by descending quantity.
 - The second table shows total estimated quantities for paints used in the mixing plans, including paint name and pigment/product code, sorted by descending quantity.
 - Estimate quantities from the user-entered total and the relative color areas. Split each mix across its components according to the suggested proportions, then aggregate by paint.
+- For a Kubelka–Munk recipe, interpret proportions by mass. Convert to milliliters only with product-specific densities and a documented volume assumption.
 - If palette data, paint inventory, or a valid quantity is missing, explain what is needed instead of showing misleading zero results.
 
 ### FR-07 — Export
@@ -100,6 +103,7 @@ The application is a decision-support tool. The artist makes the final compositi
 ### FR-08 — Persist project settings
 
 - Preserve the project's composition dimensions and grid settings, palette source and size, contour setting, total paint quantity and unit, and in-progress paint form draft.
+- Preserve the reference framing operation, frame scale, and horizontal/vertical position for the selected reference asset.
 - Automatically save settings to the local project database after a short delay.
 - Restore saved settings after switching projects or reloading the page. Also preserve the paint inventory and per-color mixing notes.
 
@@ -115,12 +119,43 @@ The application is a decision-support tool. The artist makes the final compositi
 - Arrange the interface in painting workflow order: image upload, composition and tone review, palette and maps, then paint planning.
 - Provide visible, keyboard-accessible navigation between sections.
 
+### FR-11 — Physically informed paint-mixing model
+
+- Add a separately versioned Kubelka–Munk-based model for predicting the result of mixing real paint products when adequate optical data is available.
+- Represent optical properties across a documented visible-wavelength grid. Prefer product-specific spectral reflectance and/or absorption (`K`) and scattering (`S`) data with provenance; do not infer measured physical properties from a HEX value or pigment name alone.
+- Combine paint coefficients according to declared paint-product mass fractions, then predict the mixture reflectance using a documented Kubelka–Munk layer model and stated substrate/thickness assumptions.
+- Convert predicted reflectance to a displayed color under a documented standard illuminant and observer. Use CIE D65 and the CIE 1931 2° observer as the proposed default. Optimize one- or two-paint recipes against the target using a perceptual color-difference metric, such as CIEDE2000.
+- Define mixing ratios by mass. Convert volume-based inputs only when product-specific density is available; otherwise explain why a physical estimate cannot be produced.
+- Distinguish measured, derived, and synthetic optical data. Display model/data provenance, model version, and a clear uncertainty/approximation notice.
+- If adequate spectral data is unavailable, the application may offer the existing RGB estimate, but must label it as an RGB approximation and must not present it as a Kubelka–Munk prediction.
+- Keep paint-quantity/coverage estimation separate: a color-mixing model does not predict the amount of paint needed to cover a canvas.
+- Keep user paint data and source images local. A remote paint-data catalogue requires a separate privacy decision and documentation.
+
+### FR-12 — Crop and change canvas size
+
+- Use the planned canvas width-to-height ratio as the locked aspect ratio of an interactive reference frame.
+- Provide two explicit operations:
+  - **Crop:** keep the frame within the reference image and use the selected image region as the reference for composition, tone analysis, palette extraction, and map export. Never modify the uploaded source file.
+  - **Change canvas size:** preserve the complete reference image and enlarge the canvas frame around it. Show added canvas area as blank/unpainted; do not synthesize image pixels or treat the blank area as a palette color.
+- Keep the frame aspect ratio locked while the user proportionally enlarges or reduces it. Support dragging to reposition it horizontally and vertically relative to the reference.
+- Clamp movement and resizing so Crop never extends beyond the source image, while Change canvas size never clips the complete source image and can be reduced only as far as the smallest frame that still contains it.
+- If planned dimensions change the target ratio, preserve the frame center and size where possible, recompute the locked-ratio boundary, and clamp to the selected mode's valid limits with visible feedback.
+- Dim or fade the area outside the active frame. Clearly distinguish the blank canvas extension inside the frame from the dimmed outside area.
+- Provide pointer/touch dragging and proportional corner handles, plus keyboard-accessible sliders and numeric controls for frame scale and horizontal/vertical position.
+- Provide reset-to-mode-default and restore-full-image actions.
+- Until the user selects an operation, keep the full image as the downstream source; allow restoring this unmodified state after framing.
+- Persist operation, frame scale, and position with the project and the reference asset they belong to. Replacing the reference image must not silently apply stale framing coordinates to the new image.
+- Update all affected previews, analysis, palette maps, and exports when the operation or frame changes. Planned physical dimensions determine aspect ratio, not output pixel resolution.
+- Include crop geometry and source-asset revision in derived-analysis/cache identity so stale full-image or previous-crop results cannot be reused.
+
 ## 7. Quality requirements
 
 - **Clarity:** Grid names and spacing in centimeters must be unambiguous. Invalid custom values must have visible feedback.
 - **Transparency:** Clearly identify digital mixing and consumption figures as estimates near the calculations.
+- **Color science:** Version the physical mixing algorithm and its optical datasets; record measurement conditions, model assumptions, and data provenance. Never present an inferred/synthetic spectrum as a measured paint spectrum.
 - **Privacy:** The MVP processes images locally and does not upload them to a server. Future data handling and synchronization require a separate decision.
 - **Reliability:** Changes to settings must update all affected previews and exports; stale downloads must not remain active.
+- **Image framing:** The original image is immutable; crop and canvas extension must remain visually distinct and produce consistent downstream results.
 - **Persistence:** Project metadata must not need to be re-entered after a reload or project switch.
 - **Internationalization:** User-facing strings must come from resources; support English, Slovak, Czech, and Hungarian.
 - **Accessibility:** Provide labeled controls, keyboard interaction, status announcements, and sufficient contrast.
@@ -133,13 +168,16 @@ The application is a decision-support tool. The artist makes the final compositi
 - Exported combined and per-color PNG maps reflect the selected settings.
 - The area percentages for a limited palette total 100%, allowing for rounding.
 - The paint-consumption table distributes the same planned total as the palette table according to the selected mixing ratios.
+- For paints with sufficient optical data, the physical model predicts a spectral mixture and a perceptual comparison under its declared illuminant/observer; RGB-only paints remain explicitly labeled as approximations.
+- Crop mode uses only the selected reference region downstream; Change canvas size preserves every source pixel and treats added canvas as unpainted/unassigned.
+- Users can resize and reposition the locked-ratio frame in both modes; boundaries and outside-area dimming remain clear at all supported viewport sizes.
 - Missing data and invalid settings result in explanatory states.
 
 Detailed behavior is specified in [image analysis and composition](specs/image-composition.md), [palette and paint planning](specs/palette-and-paint-planning.md), [maps and export](specs/maps-and-export.md), [workspace and localization](specs/workspace-and-localization.md), and the [MVP and migration baseline](specs/current-mvp-and-migration.md).
 
 ## 9. Current MVP status
 
-The repository includes a static, client-side browser prototype (`index.html`, `styles.css`, and `app.js`) and an active TypeScript implementation under `src/`. The TypeScript workspace supports image upload, aspect-ratio and grid guides, tone comparison, numbered and per-color palette maps, PNG export, a personal paint inventory, approximate mix suggestions, and consumption tables. Images are processed locally; project data is stored in browser storage, with optional user-selected project-folder access.
+The repository includes a static, client-side browser prototype (`index.html`, `styles.css`, and `app.js`) and an active TypeScript implementation under `src/`. The TypeScript workspace supports image upload, aspect-ratio and grid guides, tone comparison, numbered and per-color palette maps, PNG export, a personal paint inventory, and consumption tables. Paint planning defaults to a labeled linear-RGB fallback and includes an optional, separately versioned, single-constant Kubelka–Munk estimate using sourced spectral reflectance, mass ratios, D65 / CIE 1931 2° colorimetry, and CIEDE2000. The initial model has not yet been validated against a measured reference set. Images are processed locally; project data is stored in browser storage, with optional user-selected project-folder access.
 
 This describes the current starting point, not a requirement that future product versions use the same technology.
 
@@ -150,6 +188,11 @@ This describes the current starting point, not a requirement that future product
 - Whether cloud storage, accounts, cross-device synchronization, or data retention are needed.
 - Sources and licensing for paint databases, community/manufacturer color data, and custom paint imports.
 - Feasibility and accuracy of a physical pigment model and calibrated color management.
+- Sources, formats, and licensing for product-specific reflectance or Kubelka–Munk coefficient data; the target accuracy and benchmark set for model validation.
+- Whether the first physical-model release assumes an optically thick layer with constant scattering, or supports finite layer thickness and substrate reflectance.
+- Whether paint ratios will always be entered by mass and which density sources, if any, can support volume conversion.
 - Whether to track remaining paint quantities, usage, or a waste allowance.
+- The default fill/appearance of added canvas area (for example, paper white, transparent, or user-configurable) and whether that choice is exported.
+- Whether a new project should prompt for a framing operation or simply remain in the unmodified full-image state until the user chooses one.
 - Palette-size range, user-defined palette names, and screen-reader/print formats.
 - Success metrics and target outcomes for user testing.
