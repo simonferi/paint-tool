@@ -69,11 +69,11 @@ test("migrates an existing project and installs paint-planning stores", async ({
     database.close();
     return result;
   });
-  expect(schema.version).toBe(50);
+  expect(schema.version).toBe(60);
   expect(schema.stores).toContain("paintColors");
   expect(schema.stores).toContain("paintMixNotes");
   expect(schema.stores).toContain("palettes");
-  expect(schema.project.schemaVersion).toBe(3);
+  expect(schema.project.schemaVersion).toBe(4);
   expect(schema.project.workspace).toEqual({
     palette: { sourceRole: "reference", requestedColors: 6, showContours: true },
     paint: {
